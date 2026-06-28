@@ -9,8 +9,9 @@
 //! "shape a graph by root" need is served by SPARQL `CONSTRUCT` for now.)
 //!
 //! The ops are async in `json-ld`, but with `NoLoader` they do **no I/O** — they complete in
-//! a single poll — so each endpoint drives the future to completion with `block_on` and stays
-//! a simple synchronous endpoint (no `async_trait`, native and WASM alike).
+//! a single poll — so each endpoint drives the future with `now_or_never` (poll once, take the
+//! result, never park) and stays a simple synchronous endpoint. Wasm-safe by construction (no
+//! executor, no blocking); a clean error if a future ever unexpectedly pends.
 //!
 //! Heavy dependency (the `json-ld` tree), so this is a standalone crate meant to be
 //! lazy-loaded as a WASM module — the ikigai-xslt playbook — keeping it out of the host's
@@ -19,13 +20,13 @@
 #![forbid(unsafe_code)]
 
 use contextual::WithContext;
+use futures::future::FutureExt;
 use ikigai_core::{
     ArgSpec, Description, EndpointSpace, Error, Exact, FnEndpoint, Invocation, ReprType,
     Representation, Result, Verb,
 };
 use json_ld::syntax::{Parse, Print, TryFromJson};
 use json_ld::{IriBuf, JsonLdProcessor, NoLoader, RemoteContextReference, RemoteDocument};
-use pollster::block_on;
 
 /// Parse `content` (JSON-LD bytes) into a `RemoteDocument`, with an optional base IRI.
 fn parse_doc(content: &[u8], base: Option<&str>) -> Result<RemoteDocument<IriBuf>> {
@@ -58,7 +59,10 @@ fn expand(inv: &Invocation<'_>) -> Result<Representation> {
     })?;
     let doc = parse_doc(content, inv.inline_str("base").ok())?;
     let loader = NoLoader;
-    let expanded = block_on(doc.expand(&loader))
+    let expanded = doc
+        .expand(&loader)
+        .now_or_never()
+        .ok_or_else(|| Error::Endpoint("JSON-LD expand did not complete synchronously".into()))?
         .map_err(|e| Error::Endpoint(format!("JSON-LD expand failed: {e}")))?;
     // ExpandedDocument prints only with a vocabulary; `()` is the no-op vocabulary (IRIs are
     // IriBuf), and `.with(&())` wraps it as a plain `Print`-able value.
@@ -72,7 +76,10 @@ fn flatten(inv: &Invocation<'_>) -> Result<Representation> {
     let doc = parse_doc(content, inv.inline_str("base").ok())?;
     let loader = NoLoader;
     let mut generator = json_ld::rdf_types::generator::Blank::new();
-    let flattened = block_on(doc.flatten(&mut generator, &loader))
+    let flattened = doc
+        .flatten(&mut generator, &loader)
+        .now_or_never()
+        .ok_or_else(|| Error::Endpoint("JSON-LD flatten did not complete synchronously".into()))?
         .map_err(|e| Error::Endpoint(format!("JSON-LD flatten failed: {e}")))?;
     Ok(repr(flattened.pretty_print().to_string()))
 }
@@ -101,7 +108,10 @@ fn compact(inv: &Invocation<'_>) -> Result<Representation> {
     let remote_ctx = RemoteContextReference::Loaded(RemoteDocument::new(None, None, context));
 
     let loader = NoLoader;
-    let compacted = block_on(doc.compact(remote_ctx, &loader))
+    let compacted = doc
+        .compact(remote_ctx, &loader)
+        .now_or_never()
+        .ok_or_else(|| Error::Endpoint("JSON-LD compact did not complete synchronously".into()))?
         .map_err(|e| Error::Endpoint(format!("JSON-LD compact failed: {e}")))?;
     Ok(repr(compacted.pretty_print().to_string()))
 }
@@ -171,6 +181,7 @@ pub fn space() -> EndpointSpace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::executor::block_on;
     use ikigai_core::{ArgRef, Capability, Iri, Kernel, Request};
     use std::sync::Arc;
 
@@ -220,4 +231,22 @@ mod tests {
         let req = Request::new(Verb::Source, Iri::parse("urn:jsonld:expand").unwrap());
         assert!(block_on(kernel.issue(req, &Capability::root())).is_err());
     }
+}
+
+// ---------------------------------------------------------------------------
+// This library *as* a dynamically-loadable WASM module (`--features module`):
+// `wasm_module!` emits the cdylib glue (a `invoke_session` entry + the `hostCall`
+// import + the !Send→Send bridge) over our `space()`, so a host can lazy-fetch
+// `ikigai_jsonld.wasm` and resolve `urn:jsonld:*` against it — the heavy json-ld
+// tree kept out of the host's wasm. The whole module is one macro line:
+//   cargo build --release --lib --features module --target wasm32-unknown-unknown
+// ---------------------------------------------------------------------------
+#[cfg(feature = "module")]
+ikigai_module::wasm_module!(crate::space);
+
+/// Surface a Rust panic in the browser console (module builds only).
+#[cfg(feature = "module")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn __module_start() {
+    console_error_panic_hook::set_once();
 }
