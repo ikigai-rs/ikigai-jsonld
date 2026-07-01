@@ -1,0 +1,34 @@
+# CI for ikigai-jsonld. Published native crate AND a lazy-loaded wasm module
+# (the `module` feature builds the browser artifact the web-demo fetches on
+# demand). With no CI, a native-only change could silently break the wasm
+# build and only surface downstream in the web-demo Pages deploy. Check both.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy (native, all targets)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: test
+        run: cargo test
+
+      # The lazy-loaded browser artifact.
+      - name: clippy (wasm module lib)
+        run: cargo clippy --lib --features module --target wasm32-unknown-unknown -- -D warnings
