@@ -1,6 +1,6 @@
 [package]
 name = "ikigai-jsonld"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Brian Sletten <brian.sletten@gmail.com>"]
@@ -9,6 +9,7 @@ repository = "https://github.com/ikigai-rs/ikigai-jsonld"
 homepage = "https://github.com/ikigai-rs/ikigai-jsonld"
 keywords = ["ikigai", "roc", "json-ld", "rdf", "linked-data"]
 categories = ["web-programming"]
+readme = "README.md"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -25,7 +26,11 @@ async-trait = "0.1"
 # `urn:jsonld:*` against it, keeping the heavy json-ld tree out of the host's wasm. Optional
 # + behind the feature, so a native/linked consumer never pulls wasm-bindgen et al.
 [dependencies.ikigai-module]
-version = "0.1.6"
+# 0.1.9 is the floor that builds against ikigai-core >= 0.1.64 (`Resolved.canonical`,
+# a public-field flag day): 0.1.8 constructs `Resolved` by struct literal and fails to
+# compile beside the core the conformance dev-dependency now pins. A stale lock that
+# kept 0.1.8 while core moved is how this was found; a fresh resolve never picks it.
+version = "0.1.9"
 optional = true
 [dependencies.wasm-bindgen]
 version = "=0.2.108"
@@ -52,3 +57,4 @@ module = [
 
 [dev-dependencies]
 futures = "0.3"
+ikigai-conformance = "0.1.0"
