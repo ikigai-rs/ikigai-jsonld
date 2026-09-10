@@ -189,20 +189,36 @@ impl Endpoint for CompactEndpoint {
             .verb(Verb::Meta)
             .input(content_input())
             .input(
+                // A union — inline JSON or a resource IRI — has no ArgSpec spelling:
+                // `xsd:anyURI` would tell `urn:kernel:validate` that `{…}` is malformed.
+                // `xsd:string` is the type of what the wire carries; `is_inline_context`
+                // decides which half a value is.
                 ArgSpec::new("context")
-                    .summary("the JSON-LD context: inline JSON ({…}) or a resolvable resource IRI"),
+                    .summary("the JSON-LD context: inline JSON ({…}) or a resolvable resource IRI")
+                    .class(XSD_STRING),
             )
             .input(base_input())
             .output("application/ld+json")
     }
 }
 
+/// The XSD datatypes the inputs declare — an agent (and `urn:kernel:validate`) reads the
+/// `class` to form a call.
+const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
+const XSD_ANY_URI: &str = "http://www.w3.org/2001/XMLSchema#anyURI";
+
+/// `content`: a JSON-LD document. `xsd:string` is the type of what the wire carries (a
+/// piped value, an MCP argument); the value's own shape — a document that parses as JSON-LD
+/// — is a constraint no ArgSpec can state.
 fn content_input() -> ArgSpec {
-    ArgSpec::new("content").summary("the JSON-LD document — usually piped in")
+    ArgSpec::new("content")
+        .summary("the JSON-LD document — usually piped in")
+        .class(XSD_STRING)
 }
 fn base_input() -> ArgSpec {
     ArgSpec::new("base")
         .summary("optional base IRI for relative references")
+        .class(XSD_ANY_URI)
         .optional()
 }
 
