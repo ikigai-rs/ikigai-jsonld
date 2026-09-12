@@ -57,4 +57,4 @@ module = [
 
 [dev-dependencies]
 futures = "0.3"
-ikigai-conformance = "0.1.0"
+ikigai-conformance = "0.2.0"
