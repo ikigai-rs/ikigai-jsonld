@@ -26,11 +26,11 @@ async-trait = "0.1"
 # `urn:jsonld:*` against it, keeping the heavy json-ld tree out of the host's wasm. Optional
 # + behind the feature, so a native/linked consumer never pulls wasm-bindgen et al.
 [dependencies.ikigai-module]
-# 0.1.9 is the floor that builds against ikigai-core >= 0.1.64 (`Resolved.canonical`,
-# a public-field flag day): 0.1.8 constructs `Resolved` by struct literal and fails to
-# compile beside the core the conformance dev-dependency now pins. A stale lock that
-# kept 0.1.8 while core moved is how this was found; a fresh resolve never picks it.
-version = "0.1.9"
+# 0.3.1 is the floor that builds against ikigai-core >= 0.1.78 (`Resolved` gained a
+# private field, so it can only be built through `Resolved::new`): 0.1.10, 0.2.0 and
+# 0.3.0 all build it by struct literal, and a fresh resolve (newest core under the
+# caret above) fails to compile them. ⚠ A `^0.3.1` pin is also a CEILING (<0.4.0).
+version = "0.3.1"
 optional = true
 [dependencies.wasm-bindgen]
 version = "=0.2.108"
