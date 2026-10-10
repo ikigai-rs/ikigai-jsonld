@@ -58,6 +58,20 @@ is itself addressable, and the result inherits its expiry and golden threads:
 Every result is marked `.cacheable()`; the kernel's effective expiry does the
 rest.
 
+### Nesting is bounded
+
+json-ld's algorithms recurse once per nested JSON object and array, and a stack
+overflow aborts the whole host: before 0.2.1, node objects nested 13 deep (a
+debug build) or ~123 deep (release) aborted all three endpoints on a 2 MiB
+thread. So every `content`, and `compact`'s `context` whether inline or
+resolved, is refused past **64** levels of `{` and `[` (`MAX_JSON_NESTING`,
+the same bound `ikigai-rdf` holds) as a typed `InvalidArgument` naming the
+argument, before json-ld sees a byte. Natively the work runs on a 32 MiB
+thread (`JSON_LD_STACK`), so a debug and a release host admit the same
+documents; the wasm module has no threads and holds the bound on its default
+stack. Real JSON-LD nests about 10 deep at most. The measurements behind both
+numbers live in `src/depth.rs` and `tests/jsonld_depth_measure.rs`.
+
 ## Conformance
 
 The module **passes
