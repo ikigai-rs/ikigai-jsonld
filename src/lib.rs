@@ -20,11 +20,20 @@
 //! result inherits the context's golden thread (cacheable, invalidated when it changes). The
 //! one `await` is that resolution; the `json-ld` compaction stays single-poll afterward.
 //!
+//! Every document (and `compact`'s inline or resolved `context`) is bounded in JSON nesting
+//! before json-ld sees it, since json-ld's algorithms recurse once per nested object and
+//! array, and natively the work runs on a thread sized for that bound ([`MAX_JSON_NESTING`],
+//! `depth`'s notes, ledger #1042). A document nested deeper is refused as a typed
+//! `InvalidArgument` naming the argument that carried it.
+//!
 //! Heavy dependency (the `json-ld` tree), so this is a standalone crate meant to be
 //! lazy-loaded as a WASM module — the ikigai-xslt playbook — keeping it out of the host's
 //! core wasm bundle.
 
 #![forbid(unsafe_code)]
+
+mod depth;
+pub use depth::{check_json_nesting, JSON_LD_STACK, MAX_JSON_NESTING};
 
 use async_trait::async_trait;
 use contextual::WithContext;
@@ -65,7 +74,13 @@ fn expand(inv: &Invocation<'_>) -> Result<Representation> {
     let content = inv.inline_arg("content").map_err(|_| {
         Error::Endpoint("urn:jsonld:expand needs a JSON-LD `content` document".to_string())
     })?;
-    let doc = parse_doc(content, inv.inline_str("base").ok())?;
+    check_json_nesting(content, "content")?;
+    let base = inv.inline_str("base").ok();
+    depth::on_json_ld_stack(|| expand_doc(content, base))
+}
+
+fn expand_doc(content: &[u8], base: Option<&str>) -> Result<Representation> {
+    let doc = parse_doc(content, base)?;
     let loader = NoLoader;
     let expanded = doc
         .expand(&loader)
@@ -81,7 +96,13 @@ fn flatten(inv: &Invocation<'_>) -> Result<Representation> {
     let content = inv.inline_arg("content").map_err(|_| {
         Error::Endpoint("urn:jsonld:flatten needs a JSON-LD `content` document".to_string())
     })?;
-    let doc = parse_doc(content, inv.inline_str("base").ok())?;
+    check_json_nesting(content, "content")?;
+    let base = inv.inline_str("base").ok();
+    depth::on_json_ld_stack(|| flatten_doc(content, base))
+}
+
+fn flatten_doc(content: &[u8], base: Option<&str>) -> Result<Representation> {
+    let doc = parse_doc(content, base)?;
     let loader = NoLoader;
     let mut generator = json_ld::rdf_types::generator::Blank::new();
     let flattened = doc
@@ -117,6 +138,7 @@ async fn resolve_context(inv: &Invocation<'_>, uri: &str) -> Result<Representati
 
 /// Compact `content` against `context_bytes` (already-loaded JSON-LD context bytes). Sync: the
 /// `json-ld` compaction is single-poll under `NoLoader`, and no `json-ld` value crosses an await.
+/// Both are bounded in nesting already; this runs on the sized thread.
 fn compact_doc(content: &[u8], context_bytes: &[u8], base: Option<&str>) -> Result<Representation> {
     let doc = parse_doc(content, base)?;
     let ctx_text = std::str::from_utf8(context_bytes)
@@ -163,6 +185,8 @@ impl Endpoint for CompactEndpoint {
             )
         })?;
         let base = inv.inline_str("base").ok().map(str::to_string);
+        // Bound the document before anything is resolved for it.
+        check_json_nesting(&content, "content")?;
 
         // Inline JSON used directly; anything else is a resource reference resolved through the
         // kernel (the one await — no json-ld value is live across it, so the future stays Send).
@@ -171,7 +195,10 @@ impl Endpoint for CompactEndpoint {
         } else {
             resolve_context(inv, context_arg).await?.bytes
         };
-        compact_doc(&content, &context_bytes, base.as_deref())
+        // A context nests too (scoped contexts recurse), inline or resolved; either way it
+        // arrived through `context`.
+        check_json_nesting(&context_bytes, "context")?;
+        depth::on_json_ld_stack(|| compact_doc(&content, &context_bytes, base.as_deref()))
     }
 
     fn name(&self) -> &str {
