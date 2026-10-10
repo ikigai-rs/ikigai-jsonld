@@ -86,4 +86,4 @@ that each action serves exactly the one face it declares.
 
 ## Status
 
-0.2.0: `space()` names itself `urn:iki:space:jsonld`. Depends only on published crates. Dual-licensed MIT / Apache-2.0.
+0.2.1: caller JSON-LD is bounded in nesting (64) and processed on a sized thread, so a deeply nested document is refused instead of aborting the host. Depends only on published crates. Dual-licensed MIT / Apache-2.0.
