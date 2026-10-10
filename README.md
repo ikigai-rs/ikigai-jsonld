@@ -16,6 +16,8 @@ dependency tree, so a host links it in and mounts [`space`] — or, with
 (`ikigai_jsonld.wasm`) and resolves `urn:jsonld:*` against it, keeping the
 `json-ld` tree out of the host's own wasm bundle.
 
+`space()` names itself `urn:iki:space:jsonld` (the const `SPACE_ID`).
+
 ## Endpoints
 
 Every endpoint is a single-verb `Source`, takes the document as `content`

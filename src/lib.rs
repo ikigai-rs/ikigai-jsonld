@@ -30,8 +30,8 @@ use async_trait::async_trait;
 use contextual::WithContext;
 use futures::future::FutureExt;
 use ikigai_core::{
-    ArgRef, ArgSpec, Description, Endpoint, EndpointSpace, Error, Exact, FnEndpoint, Invocation,
-    Iri, ReprType, Representation, Request, Result, Verb,
+    space_iri, ArgRef, ArgSpec, Description, Endpoint, EndpointSpace, Error, Exact, FnEndpoint,
+    Invocation, Iri, ReprType, Representation, Request, Result, Verb,
 };
 use json_ld::syntax::{Parse, Print, TryFromJson};
 use json_ld::{IriBuf, JsonLdProcessor, NoLoader, RemoteContextReference, RemoteDocument};
@@ -222,7 +222,14 @@ fn base_input() -> ArgSpec {
         .optional()
 }
 
-/// The space binding `urn:jsonld:expand` / `:flatten` / `:compact`.
+/// The name [`space`] claims: `urn:iki:space:jsonld`.
+pub const SPACE_ID: &str = "urn:iki:space:jsonld";
+
+/// The space binding `urn:jsonld:expand` / `:flatten` / `:compact`, named [`SPACE_ID`].
+///
+/// Configuration-free (no parameters, nothing read while building it), so the name is a true
+/// claim: every call holds the same three doors. It goes on LAST, because binding another door
+/// drops it: a host that extends this space holds different doors and must name its own.
 pub fn space() -> EndpointSpace {
     EndpointSpace::new()
         .bind(
@@ -253,6 +260,7 @@ pub fn space() -> EndpointSpace {
                 ),
         )
         .bind(Exact::new("urn:jsonld:compact"), CompactEndpoint)
+        .named(space_iri("jsonld"))
 }
 
 #[cfg(test)]
