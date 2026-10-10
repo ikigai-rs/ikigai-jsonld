@@ -38,6 +38,14 @@
 //! The suite cannot see either — its ENFORCED probe uses the fixture's inline
 //! context — so this file pins both by hand.
 //!
+//! ## The space's name
+//!
+//! [`ikigai_jsonld::space`] takes no parameters and reads nothing while it is built, so it
+//! names itself [`ikigai_jsonld::SPACE_ID`] (`urn:iki:space:jsonld`), and [`conforms`]
+//! declares it self-named. The walks below extend it with a context resource or a stand-in
+//! `urn:httpGet`; binding a door drops the name (core 0.1.89), so those kernels are anonymous
+//! and declare no space.
+//!
 //! No opt-outs, no module namespace (the faces carry the caller's terms, and the
 //! fixture's are `foaf:`), and NAMES runs: every id is kebab-case.
 
@@ -68,10 +76,15 @@ const ANONYMOUS: &str = r#"{"@context":{"foaf":"http://xmlns.com/foaf/0.1/"},
 const CONTEXT_NAME: &str = r#"{"@context":{"name":"http://xmlns.com/foaf/0.1/name"}}"#;
 const CONTEXT_LABEL: &str = r#"{"@context":{"label":"http://xmlns.com/foaf/0.1/name"}}"#;
 
-/// Where the by-reference walks bind the context, doubling as the golden thread
-/// the threaded variant names for it (the `ikigai-fs` convention: `depends_on`
-/// the resource's own IRI).
+/// Where the by-reference walks bind the context.
 const CONTEXT_IRI: &str = "urn:conformance:context";
+
+/// The golden thread the threaded store names for the state it reads, and cuts when
+/// that state changes. Not the resource's own IRI: the kernel already hangs every
+/// cacheable read on the name it was read through, so a thread that only repeats the
+/// name gives the store nothing of its own to cut, and conformance 0.6.0 reports it
+/// (CACHEABLE, "no golden thread but its own name").
+const CONTEXT_THREAD: &str = "urn:conformance:context-store";
 
 /// The remote context the stand-in `urn:httpGet` serves, and the scope it demands.
 const REMOTE_CONTEXT: &str = "https://example.org/context.jsonld";
@@ -123,7 +136,7 @@ fn with_context(threaded: bool) -> (Kernel, Arc<RwLock<&'static str>>) {
     let context = Arc::new(RwLock::new(CONTEXT_NAME));
     let space = ikigai_jsonld::space().bind(
         Exact::new(CONTEXT_IRI),
-        context_resource(Arc::clone(&context), threaded.then_some(CONTEXT_IRI)),
+        context_resource(Arc::clone(&context), threaded.then_some(CONTEXT_THREAD)),
     );
     (Kernel::new(Arc::new(space)), context)
 }
@@ -173,12 +186,17 @@ fn conforms() {
         .iter()
         .fold(suite(DOC, CONTEXT_NAME), |suite, id| {
             suite.pure(*id).cacheable(*id)
-        });
+        })
+        .self_named_space("jsonld", ikigai_jsonld::space);
     let report = suite.run_blocking(&kernel);
     // Printed even when clean (`--nocapture`): the report is the record.
     eprintln!("{report}");
     assert!(report.is_clean(), "{report}");
     assert_shape(&report, 0);
+    assert_eq!(
+        ikigai_core::space_iri("jsonld").as_str(),
+        ikigai_jsonld::SPACE_ID
+    );
 }
 
 /// The half of SKOLEM-RDF the clean walk cannot show: these are transformations,
@@ -246,7 +264,9 @@ fn a_context_by_reference_inherits_its_thread() {
     )
     .unwrap();
     assert!(
-        repr.threads().iter().any(|t| t.to_string() == CONTEXT_IRI),
+        repr.threads()
+            .iter()
+            .any(|t| t.to_string() == CONTEXT_THREAD),
         "the compaction carries the context's thread: {:?}",
         repr.threads()
     );
@@ -260,7 +280,7 @@ fn a_context_by_reference_inherits_its_thread() {
     );
 
     // The store cuts the thread it named, and the compaction goes with it.
-    kernel.cut(CONTEXT_IRI);
+    kernel.cut(CONTEXT_THREAD);
     let fresh = issue(&kernel, compact_request(CONTEXT_IRI), &Capability::root()).unwrap();
     assert!(
         fresh.contains("\"label\""),

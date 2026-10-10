@@ -15,7 +15,8 @@ readme = "README.md"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-ikigai-core = "0.1.26"
+# 0.1.89 is the floor: `space_iri`, and `bind` dropping a name (so `space()` names itself last).
+ikigai-core = "0.1.89"
 json-ld = { version = "0.21", default-features = false }
 contextual = "0.1.6"
 futures = "0.3"
@@ -57,4 +58,4 @@ module = [
 
 [dev-dependencies]
 futures = "0.3"
-ikigai-conformance = "0.2.0"
+ikigai-conformance = "0.6.0"
