@@ -1,10 +1,10 @@
-//! The module recipe as one test: `ikigai-conformance` walks the three endpoints
+//! The module recipe as one test: `ikigai-conformance` walks the four endpoints
 //! [`ikigai_jsonld::space`] binds and reports every violation at once.
 //!
-//! ## Three transformations, one face
+//! ## Four transformations, one RDF face
 //!
-//! `expand`, `flatten` and `compact` take a JSON-LD document as `content` and serve
-//! `application/ld+json` — which the suite treats as an RDF face: it parses the
+//! `expand`, `flatten`, `compact` and `prune` take a JSON-LD document as `content` and serve
+//! `application/ld+json` (prune's `face=report` serves `application/json`, not RDF) — which the suite treats as an RDF face: it parses the
 //! output and reads it for blank nodes and undefined terms. What it reads is the
 //! caller's document after the algorithm, not a graph this module authors, so the
 //! face is exactly as skolemized as its input ([`over_an_anonymous_document_every_face_has_blank_nodes`]).
@@ -21,7 +21,7 @@
 //! served under a thread makes the compaction cacheable under that thread
 //! ([`a_context_by_reference_inherits_its_thread`]); a context served live makes
 //! it uncacheable ([`over_a_live_context_nothing_is_cached`]). So the declarations
-//! here certify behavior over the kernel passed: [`conforms`] declares all three
+//! here certify behavior over the kernel passed: [`conforms`] declares all four
 //! `pure` and `cacheable` over the inline fixture; the by-reference walks declare
 //! `compact` only `cacheable` (it has a thread there, the context's) or nothing.
 //!
@@ -56,11 +56,12 @@ use ikigai_core::{
 };
 use std::sync::{Arc, RwLock};
 
-/// The three endpoints `space()` binds, by description id.
+/// The four endpoints `space()` binds, by description id.
 const EXPAND: &str = "jsonld-expand";
 const FLATTEN: &str = "jsonld-flatten";
 const COMPACT: &str = "jsonld-compact";
-const ENDPOINTS: [&str; 3] = [EXPAND, FLATTEN, COMPACT];
+const PRUNE: &str = "jsonld-prune";
+const ENDPOINTS: [&str; 4] = [EXPAND, FLATTEN, COMPACT, PRUNE];
 
 /// The walk's document: one node, named and typed under a well-known vocabulary.
 const DOC: &str = r#"{"@context":{"foaf":"http://xmlns.com/foaf/0.1/"},
@@ -72,9 +73,13 @@ const ANONYMOUS: &str = r#"{"@context":{"foaf":"http://xmlns.com/foaf/0.1/"},
   "foaf:knows":{"@type":"foaf:Person","foaf:name":"Charles"}}"#;
 
 /// Two contexts that compact `foaf:name` to different terms, so a recomputation
-/// after a cut is visible in the bytes.
-const CONTEXT_NAME: &str = r#"{"@context":{"name":"http://xmlns.com/foaf/0.1/name"}}"#;
-const CONTEXT_LABEL: &str = r#"{"@context":{"label":"http://xmlns.com/foaf/0.1/name"}}"#;
+/// after a cut is visible in the bytes. Both define `Person` as well, so `prune`
+/// keeps the document whole over either (a type the context does not define is
+/// pruned, and VOCABULARY would then read no class at all).
+const CONTEXT_NAME: &str = r#"{"@context":{"name":"http://xmlns.com/foaf/0.1/name",
+  "Person":"http://xmlns.com/foaf/0.1/Person"}}"#;
+const CONTEXT_LABEL: &str = r#"{"@context":{"label":"http://xmlns.com/foaf/0.1/name",
+  "Person":"http://xmlns.com/foaf/0.1/Person"}}"#;
 
 /// Where the by-reference walks bind the context.
 const CONTEXT_IRI: &str = "urn:conformance:context";
@@ -98,6 +103,11 @@ fn suite(doc: &str, context: &str) -> Suite {
         .fixture(Fixture::new(FLATTEN, Verb::Source).arg("content", doc))
         .fixture(
             Fixture::new(COMPACT, Verb::Source)
+                .arg("content", doc)
+                .arg("context", context),
+        )
+        .fixture(
+            Fixture::new(PRUNE, Verb::Source)
                 .arg("content", doc)
                 .arg("context", context),
         )
@@ -161,8 +171,8 @@ fn issue(kernel: &Kernel, request: Request, capability: &Capability) -> Result<S
         .map(|repr| String::from_utf8(repr.bytes).expect("JSON-LD is UTF-8"))
 }
 
-/// The walk saw the module's three endpoints plus `extra` fixture endpoints, one
-/// Source action each, and skipped nothing. A fourth module endpoint bound
+/// The walk saw the module's four endpoints plus `extra` fixture endpoints, one
+/// Source action each, and skipped nothing. A fifth module endpoint bound
 /// without a line here would be held to a weaker standard; a declared id that
 /// binds nothing is a stale list.
 fn assert_shape(report: &Report, extra: usize) {
@@ -248,6 +258,7 @@ fn a_context_by_reference_inherits_its_thread() {
         .pure(FLATTEN)
         .cacheable(FLATTEN)
         .cacheable(COMPACT)
+        .cacheable(PRUNE)
         .run_blocking(&kernel);
     eprintln!("[threaded context]\n{report}");
     assert!(report.is_clean(), "{report}");
@@ -320,19 +331,22 @@ fn over_a_live_context_nothing_is_cached() {
         .pure(FLATTEN)
         .cacheable(FLATTEN)
         .cacheable(COMPACT)
+        .cacheable(PRUNE)
         .run_blocking(&kernel);
-    eprintln!("[live context, compact declared cacheable]\n{report}");
-    let downgraded: Vec<&str> = report
+    eprintln!("[live context, compact and prune declared cacheable]\n{report}");
+    let mut downgraded: Vec<&str> = report
         .of(Check::Cacheable)
         .map(|f| f.endpoint.as_str())
         .collect();
-    assert_eq!(downgraded, [COMPACT], "{report}");
-    assert!(
-        report.findings[0].detail.contains("declared cacheable"),
-        "the finding names the declaration: {}",
-        report.findings[0]
-    );
-    assert_eq!(report.findings.len(), 1, "and nothing else: {report}");
+    downgraded.sort_unstable();
+    assert_eq!(downgraded, [COMPACT, PRUNE], "{report}");
+    for finding in &report.findings {
+        assert!(
+            finding.detail.contains("declared cacheable"),
+            "the finding names the declaration: {finding}"
+        );
+    }
+    assert_eq!(report.findings.len(), 2, "and nothing else: {report}");
 }
 
 /// The remote-context path, over a stand-in for `ikigai-http`'s `urn:httpGet`
@@ -380,9 +394,10 @@ fn a_remote_context_is_gated_by_the_net_capability() {
 
 /// What `ikigai-conformance` 0.1.0 does not check (its PENDING #11): a declared
 /// output is compared with what the action serves only when it is an RDF face,
-/// and only in one direction. Read by hand, then pinned both ways: each action
-/// declares exactly `application/ld+json` and serves exactly that (with a
-/// `charset` parameter the comparison ignores).
+/// and only in one direction. Read by hand, then pinned both ways: expand, flatten
+/// and compact each declare exactly `application/ld+json` and serve exactly that
+/// (with a `charset` parameter the comparison ignores); prune declares that and
+/// `application/json`, and serves one per `face`.
 #[test]
 fn declared_outputs_are_the_media_types_served() {
     let kernel = Kernel::new(Arc::new(ikigai_jsonld::space()));
@@ -411,5 +426,31 @@ fn declared_outputs_are_the_media_types_served() {
             .collect();
         assert_eq!(declared, ["application/ld+json"], "{iri} declares one face");
         assert_eq!(got, declared[0], "{iri} serves the face it declares");
+    }
+
+    // `prune` declares two, one per `face`, and serves each.
+    let description = kernel
+        .describe_pattern("urn:jsonld:prune")
+        .expect("urn:jsonld:prune describes itself");
+    assert_eq!(
+        description.outputs,
+        ["application/ld+json", "application/json"],
+        "prune declares its two faces"
+    );
+    for (face, media_type) in [
+        ("document", "application/ld+json"),
+        ("report", "application/json"),
+    ] {
+        let request = request(
+            "urn:jsonld:prune",
+            &[("content", DOC), ("context", CONTEXT_NAME), ("face", face)],
+        );
+        let repr = futures::executor::block_on(kernel.issue(request, &Capability::root()))
+            .unwrap_or_else(|e| panic!("prune face={face}: {e}"));
+        assert_eq!(
+            ikigai_conformance::rdf::bare_media_type(&repr.repr_type.media_type),
+            media_type,
+            "face={face}"
+        );
     }
 }

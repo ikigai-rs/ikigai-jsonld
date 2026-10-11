@@ -86,8 +86,8 @@ const SHAPES: [&str; 6] = [
     "list-objects",
 ];
 
-/// The doors: the three endpoints, and `compact` with the deep document as its context, inline
-/// (`compact-context`) and by reference (`compact-context-ref`).
+/// The doors: the four endpoints, and `compact` and `prune` with the deep document as their
+/// context, inline (`…-context`) and by reference (`…-context-ref`).
 fn issue(door: &str, doc: String) -> ikigai_core::Result<String> {
     let deep_context = doc.clone();
     let context_space = EndpointSpace::new().bind(
@@ -105,9 +105,11 @@ fn issue(door: &str, doc: String) -> ikigai_core::Result<String> {
     ])));
     let (iri, content, context) = match door {
         "expand" | "flatten" => (door, doc, None),
-        "compact" => ("compact", doc, Some(CONTEXT.to_string())),
+        "compact" | "prune" => (door, doc, Some(CONTEXT.to_string())),
         "compact-context" => ("compact", shape("nodes", 1), Some(doc)),
         "compact-context-ref" => ("compact", shape("nodes", 1), Some(CONTEXT_IRI.to_string())),
+        "prune-context" => ("prune", shape("nodes", 1), Some(doc)),
+        "prune-context-ref" => ("prune", shape("nodes", 1), Some(CONTEXT_IRI.to_string())),
         other => panic!("no door named {other}"),
     };
     let mut request = Request::new(
@@ -185,7 +187,7 @@ fn assert_refused(outcome: &str, arg: &str, what: &str) {
 
 #[test]
 fn deep_documents_are_refused_at_every_door_and_abort_nothing() {
-    for door in ["expand", "flatten", "compact"] {
+    for door in ["expand", "flatten", "compact", "prune"] {
         for name in SHAPES {
             assert_refused(
                 &probe(door, name, 3000),
@@ -198,7 +200,12 @@ fn deep_documents_are_refused_at_every_door_and_abort_nothing() {
 
 #[test]
 fn a_deep_context_is_refused_naming_context_inline_and_by_reference() {
-    for door in ["compact-context", "compact-context-ref"] {
+    for door in [
+        "compact-context",
+        "compact-context-ref",
+        "prune-context",
+        "prune-context-ref",
+    ] {
         assert_refused(&probe(door, "context", 3000), "context", door);
     }
 }
@@ -208,7 +215,7 @@ fn a_deep_context_is_refused_naming_context_inline_and_by_reference() {
 /// sized thread. `nodes` nests `n + 1` JSON levels.
 #[test]
 fn a_document_at_the_bound_is_answered_on_a_small_thread_and_one_past_is_refused() {
-    for door in ["expand", "flatten", "compact"] {
+    for door in ["expand", "flatten", "compact", "prune"] {
         let ok = probe(door, "nodes", BOUND - 1);
         assert!(ok.starts_with("ok "), "{door} at the bound: {ok}");
         assert_refused(&probe(door, "nodes", BOUND), "content", door);
@@ -229,7 +236,7 @@ fn brackets_in_strings_are_not_nesting() {
     let deep = "[{".repeat(500);
     let text =
         format!("{{\"@id\":\"urn:ex:s\",\"urn:ex:p\":[\"{deep}\",\"a\\\"{deep}\",\"\\\\\"]}}");
-    for door in ["expand", "flatten", "compact"] {
+    for door in ["expand", "flatten", "compact", "prune"] {
         let answer = issue(door, text.clone()).unwrap_or_else(|e| panic!("{door}: {e}"));
         assert!(answer.contains("urn:ex:s"), "{door}: {answer}");
     }

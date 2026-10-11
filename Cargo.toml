@@ -4,7 +4,7 @@ version = "0.2.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Brian Sletten <brian.sletten@gmail.com>"]
-description = "JSON-LD operators for ikigai — urn:jsonld:expand / :compact / :flatten as resources, on the json-ld crate with a static (no-network) context loader. Standalone, lazy-loadable as a WASM module."
+description = "JSON-LD operators for ikigai — urn:jsonld:expand / :compact / :flatten as resources, plus :prune (the trust-boundary egress filter), on the json-ld crate with a static (no-network) context loader. Standalone, lazy-loadable as a WASM module."
 repository = "https://github.com/ikigai-rs/ikigai-jsonld"
 homepage = "https://github.com/ikigai-rs/ikigai-jsonld"
 keywords = ["ikigai", "roc", "json-ld", "rdf", "linked-data"]
@@ -58,4 +58,4 @@ module = [
 
 [dev-dependencies]
 futures = "0.3"
-ikigai-conformance = "0.6.0"
+ikigai-conformance = "0.6.1"
