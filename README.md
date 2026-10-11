@@ -122,4 +122,4 @@ prune's rules over the collaboration layer's allowlist context.
 
 ## Status
 
-0.2.1: caller JSON-LD is bounded in nesting (64) and processed on a sized thread, so a deeply nested document is refused instead of aborting the host. Depends only on published crates. Dual-licensed MIT / Apache-2.0.
+0.2.2: `urn:jsonld:prune`, the trust-boundary egress filter: keep only what a context defines, refuse `@vocab`, report what was removed. 0.2.1 bounded caller JSON-LD in nesting (64) and processed it on a sized thread. Depends only on published crates. Dual-licensed MIT / Apache-2.0.
