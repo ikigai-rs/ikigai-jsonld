@@ -20,7 +20,12 @@
 //! result inherits the context's golden thread (cacheable, invalidated when it changes). The
 //! one `await` is that resolution; the `json-ld` compaction stays single-poll afterward.
 //!
-//! Every document (and `compact`'s inline or resolved `context`) is bounded in JSON nesting
+//! `prune` is `compact` with an allowlist: expand, remove every property, type and datatype
+//! the `context` does not define (a prefix is not a term), drop nodes left empty, compact.
+//! It refuses a context with `@vocab`, and its `face=report` lists what was removed. The
+//! trust-boundary egress filter, ledger #1180; the rules are in `prune`'s notes.
+//!
+//! Every document (and `compact`'s and `prune`'s inline or resolved `context`) is bounded in JSON nesting
 //! before json-ld sees it, since json-ld's algorithms recurse once per nested object and
 //! array, and natively the work runs on a thread sized for that bound ([`MAX_JSON_NESTING`],
 //! `depth`'s notes, ledger #1042). A document nested deeper is refused as a typed
@@ -33,6 +38,7 @@
 #![forbid(unsafe_code)]
 
 mod depth;
+mod prune;
 pub use depth::{check_json_nesting, JSON_LD_STACK, MAX_JSON_NESTING};
 
 use async_trait::async_trait;
@@ -136,23 +142,31 @@ async fn resolve_context(inv: &Invocation<'_>, uri: &str) -> Result<Representati
     }
 }
 
+/// Parse already-loaded context bytes: either a bare context value (`{"name": …}`) or a context
+/// *document* (`{"@context": {…}}`), unwrapped to its `@context` value. Returns that JSON value
+/// and the JSON-LD context it parses as.
+fn parse_context(
+    context_bytes: &[u8],
+) -> Result<(json_ld::syntax::Value, json_ld::syntax::Context)> {
+    let ctx_text = std::str::from_utf8(context_bytes)
+        .map_err(|e| Error::Endpoint(format!("context is not UTF-8: {e}")))?;
+    let (ctx_value, _) = json_ld::syntax::Value::parse_str(ctx_text)
+        .map_err(|e| Error::Endpoint(format!("context parse error: {e}")))?;
+    let context_value = match ctx_value.as_object().and_then(|o| o.get("@context").next()) {
+        Some(inner) => inner.clone(),
+        None => ctx_value,
+    };
+    let context = json_ld::syntax::Context::try_from_json(context_value.clone())
+        .map_err(|e| Error::Endpoint(format!("invalid JSON-LD context: {e}")))?;
+    Ok((context_value, context))
+}
+
 /// Compact `content` against `context_bytes` (already-loaded JSON-LD context bytes). Sync: the
 /// `json-ld` compaction is single-poll under `NoLoader`, and no `json-ld` value crosses an await.
 /// Both are bounded in nesting already; this runs on the sized thread.
 fn compact_doc(content: &[u8], context_bytes: &[u8], base: Option<&str>) -> Result<Representation> {
     let doc = parse_doc(content, base)?;
-    let ctx_text = std::str::from_utf8(context_bytes)
-        .map_err(|e| Error::Endpoint(format!("context is not UTF-8: {e}")))?;
-    let (ctx_value, _) = json_ld::syntax::Value::parse_str(ctx_text)
-        .map_err(|e| Error::Endpoint(format!("context parse error: {e}")))?;
-    // Accept either a bare context value (`{"name": …}`) or a context *document*
-    // (`{"@context": {…}}`); unwrap the latter to its `@context` value.
-    let context_value = match ctx_value.as_object().and_then(|o| o.get("@context").next()) {
-        Some(inner) => inner.clone(),
-        None => ctx_value,
-    };
-    let context = json_ld::syntax::Context::try_from_json(context_value)
-        .map_err(|e| Error::Endpoint(format!("invalid JSON-LD context: {e}")))?;
+    let (_, context) = parse_context(context_bytes)?;
     let remote_ctx = RemoteContextReference::Loaded(RemoteDocument::new(None, None, context));
 
     let loader = NoLoader;
@@ -229,6 +243,78 @@ impl Endpoint for CompactEndpoint {
     }
 }
 
+/// `urn:jsonld:prune`: expand, remove everything `context` does not define, compact. The
+/// trust-boundary egress filter (ledger #1180); see `prune`'s notes for the rules. Async for the
+/// same reason as compact: `context` may be a resource.
+struct PruneEndpoint;
+
+#[async_trait]
+impl Endpoint for PruneEndpoint {
+    async fn invoke(&self, inv: &Invocation<'_>) -> Result<Representation> {
+        let content = inv
+            .inline_arg("content")
+            .map_err(|_| {
+                Error::Endpoint("urn:jsonld:prune needs a JSON-LD `content` document".to_string())
+            })?
+            .to_vec();
+        let context_arg = inv.inline_str("context").map_err(|_| {
+            Error::Endpoint(
+                "urn:jsonld:prune needs a `context`, the allowlist: inline JSON ({…}) or a \
+                 resolvable resource IRI"
+                    .to_string(),
+            )
+        })?;
+        let base = inv.inline_str("base").ok().map(str::to_string);
+        let face = prune::Face::parse(inv.inline_str("face").ok())?;
+        check_json_nesting(&content, "content")?;
+        let context_bytes = if is_inline_context(context_arg) {
+            context_arg.as_bytes().to_vec()
+        } else {
+            resolve_context(inv, context_arg).await?.bytes
+        };
+        check_json_nesting(&context_bytes, "context")?;
+        depth::on_json_ld_stack(|| {
+            prune::prune_doc(&content, &context_bytes, base.as_deref(), face)
+        })
+    }
+
+    fn name(&self) -> &str {
+        "jsonld-prune"
+    }
+
+    fn describe(&self) -> Description {
+        Description::new("jsonld-prune")
+            .title("JSON-LD prune")
+            .summary(
+                "Keep only what a context defines: expand, drop every property, reverse \
+                 property, type and datatype that is not a term of the context (a prefix is not \
+                 a term), drop nodes left empty, compact. Refuses a context with @vocab. The \
+                 trust-boundary egress filter; face=report lists what was dropped.",
+            )
+            .verb(Verb::Source)
+            .verb(Verb::Meta)
+            .input(content_input())
+            .input(
+                ArgSpec::new("context")
+                    .summary(
+                        "the allowlist context, with no @vocab: inline JSON ({…}) or a \
+                         resolvable resource IRI",
+                    )
+                    .class(XSD_STRING),
+            )
+            .input(base_input())
+            .input(
+                ArgSpec::new("face")
+                    .summary("document (the pruned document) or report (what was dropped, as JSON)")
+                    .class(XSD_STRING)
+                    .one_of(prune::Face::NAMES)
+                    .default_value("document"),
+            )
+            .output("application/ld+json")
+            .output("application/json")
+    }
+}
+
 /// The XSD datatypes the inputs declare — an agent (and `urn:kernel:validate`) reads the
 /// `class` to form a call.
 const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
@@ -252,10 +338,10 @@ fn base_input() -> ArgSpec {
 /// The name [`space`] claims: `urn:iki:space:jsonld`.
 pub const SPACE_ID: &str = "urn:iki:space:jsonld";
 
-/// The space binding `urn:jsonld:expand` / `:flatten` / `:compact`, named [`SPACE_ID`].
+/// The space binding `urn:jsonld:expand` / `:flatten` / `:compact` / `:prune`, named [`SPACE_ID`].
 ///
 /// Configuration-free (no parameters, nothing read while building it), so the name is a true
-/// claim: every call holds the same three doors. It goes on LAST, because binding another door
+/// claim: every call holds the same four doors. It goes on LAST, because binding another door
 /// drops it: a host that extends this space holds different doors and must name its own.
 pub fn space() -> EndpointSpace {
     EndpointSpace::new()
@@ -287,6 +373,7 @@ pub fn space() -> EndpointSpace {
                 ),
         )
         .bind(Exact::new("urn:jsonld:compact"), CompactEndpoint)
+        .bind(Exact::new("urn:jsonld:prune"), PruneEndpoint)
         .named(space_iri("jsonld"))
 }
 
