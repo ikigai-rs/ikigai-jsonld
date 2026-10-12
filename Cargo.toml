@@ -34,6 +34,15 @@ async-trait = "0.1"
 version = "0.3.1"
 optional = true
 [dependencies.wasm-bindgen]
+# EXACT on purpose (ledger #1193), unlike every other pin here. The `module` feature is
+# built with THIS crate as the root package and post-processed by a `wasm-bindgen` CLI that
+# must match the library version exactly: ikigai-web-demo's pages.yml checks this repo out
+# at JSONLD_REV, builds it with no lock (none is committed), and runs wasm-bindgen-cli
+# 0.2.108 over `ikigai_jsonld.wasm`. Under a caret the fresh resolve takes the newest 0.2.x,
+# and the CLI refuses the wasm. So this pin is the only thing tying the two together; bump
+# it in step with that CLI pin (and the other `=0.2.108` crates beside it), never alone.
+# It costs native consumers nothing: the dependency is optional and only `module` enables
+# it, so a crate linking ikigai-jsonld never resolves it (gonk locks 0.2.128 beside it).
 version = "=0.2.108"
 optional = true
 [dependencies.wasm-bindgen-futures]
