@@ -77,9 +77,9 @@ fn repr(json: String) -> Representation {
 }
 
 fn expand(inv: &Invocation<'_>) -> Result<Representation> {
-    let content = inv.inline_arg("content").map_err(|_| {
-        Error::Endpoint("urn:jsonld:expand needs a JSON-LD `content` document".to_string())
-    })?;
+    // Core's typed refusal, unchanged: `MissingArgument` when absent, `InvalidArgument` when
+    // not inline, so a caller can tell its own omission from a failure here.
+    let content = inv.inline_arg("content")?;
     check_json_nesting(content, "content")?;
     let base = inv.inline_str("base").ok();
     depth::on_json_ld_stack(|| expand_doc(content, base))
@@ -99,9 +99,9 @@ fn expand_doc(content: &[u8], base: Option<&str>) -> Result<Representation> {
 }
 
 fn flatten(inv: &Invocation<'_>) -> Result<Representation> {
-    let content = inv.inline_arg("content").map_err(|_| {
-        Error::Endpoint("urn:jsonld:flatten needs a JSON-LD `content` document".to_string())
-    })?;
+    // Core's typed refusal, unchanged: `MissingArgument` when absent, `InvalidArgument` when
+    // not inline, so a caller can tell its own omission from a failure here.
+    let content = inv.inline_arg("content")?;
     check_json_nesting(content, "content")?;
     let base = inv.inline_str("base").ok();
     depth::on_json_ld_stack(|| flatten_doc(content, base))
@@ -185,19 +185,9 @@ struct CompactEndpoint;
 #[async_trait]
 impl Endpoint for CompactEndpoint {
     async fn invoke(&self, inv: &Invocation<'_>) -> Result<Representation> {
-        let content = inv
-            .inline_arg("content")
-            .map_err(|_| {
-                Error::Endpoint("urn:jsonld:compact needs a JSON-LD `content` document".to_string())
-            })?
-            .to_vec();
-        let context_arg = inv.inline_str("context").map_err(|_| {
-            Error::Endpoint(
-                "urn:jsonld:compact needs a `context`: inline JSON ({…}) or a resolvable \
-                 resource IRI"
-                    .to_string(),
-            )
-        })?;
+        // Typed refusals from core (`MissingArgument`/`InvalidArgument`), as in `expand`.
+        let content = inv.inline_arg("content")?.to_vec();
+        let context_arg = inv.inline_str("context")?;
         let base = inv.inline_str("base").ok().map(str::to_string);
         // Bound the document before anything is resolved for it.
         check_json_nesting(&content, "content")?;
@@ -251,19 +241,9 @@ struct PruneEndpoint;
 #[async_trait]
 impl Endpoint for PruneEndpoint {
     async fn invoke(&self, inv: &Invocation<'_>) -> Result<Representation> {
-        let content = inv
-            .inline_arg("content")
-            .map_err(|_| {
-                Error::Endpoint("urn:jsonld:prune needs a JSON-LD `content` document".to_string())
-            })?
-            .to_vec();
-        let context_arg = inv.inline_str("context").map_err(|_| {
-            Error::Endpoint(
-                "urn:jsonld:prune needs a `context`, the allowlist: inline JSON ({…}) or a \
-                 resolvable resource IRI"
-                    .to_string(),
-            )
-        })?;
+        // Typed refusals from core (`MissingArgument`/`InvalidArgument`), as in `expand`.
+        let content = inv.inline_arg("content")?.to_vec();
+        let context_arg = inv.inline_str("context")?;
         let base = inv.inline_str("base").ok().map(str::to_string);
         let face = prune::Face::parse(inv.inline_str("face").ok())?;
         check_json_nesting(&content, "content")?;
@@ -464,11 +444,39 @@ mod tests {
         assert!(body.contains("Ada"));
     }
 
+    /// A required input left out is refused as a typed `MissingArgument` naming it, never an
+    /// untyped endpoint error: the caller's omission, not this module's failure
+    /// (ikigai-conformance 0.8.0's REQUIRED check).
     #[test]
-    fn missing_content_is_a_clean_error() {
+    fn a_missing_required_input_is_a_typed_missing_argument() {
         let kernel = Kernel::new(Arc::new(space()));
-        let req = Request::new(Verb::Source, Iri::parse("urn:jsonld:expand").unwrap());
-        assert!(block_on(kernel.issue(req, &Capability::root())).is_err());
+        const CTX: &str = r#"{"@context":{"name":"http://xmlns.com/foaf/0.1/name"}}"#;
+        // (endpoint, the arguments given, the required one left out)
+        type Case = (
+            &'static str,
+            &'static [(&'static str, &'static str)],
+            &'static str,
+        );
+        let cases: [Case; 6] = [
+            ("urn:jsonld:expand", &[], "content"),
+            ("urn:jsonld:flatten", &[], "content"),
+            ("urn:jsonld:compact", &[("context", CTX)], "content"),
+            ("urn:jsonld:compact", &[("content", DOC)], "context"),
+            ("urn:jsonld:prune", &[("context", CTX)], "content"),
+            ("urn:jsonld:prune", &[("content", DOC)], "context"),
+        ];
+        for (iri, args, missing) in cases {
+            let mut req = Request::new(Verb::Source, Iri::parse(iri).unwrap());
+            for &(k, v) in args {
+                req = req.with_arg(k, ArgRef::Inline(v.as_bytes().to_vec()));
+            }
+            match block_on(kernel.issue(req, &Capability::root())) {
+                Err(Error::MissingArgument(name)) => assert_eq!(name, missing, "{iri}"),
+                other => {
+                    panic!("{iri} without `{missing}`: expected MissingArgument, got {other:?}")
+                }
+            }
+        }
     }
 }
 
