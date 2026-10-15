@@ -20,6 +20,10 @@
 //! result inherits the context's golden thread (cacheable, invalidated when it changes). The
 //! one `await` is that resolution; the `json-ld` compaction stays single-poll afterward.
 //!
+//! Every answer is `.cacheable()`, so each is a function of its input alone, byte for byte:
+//! `flatten` sorts its nodes by `@id` (json-ld's `ordered`), since its node map is a `HashMap`
+//! whose order changes per computation (ledger #1564; `tests/determinism.rs`).
+//!
 //! `prune` is `compact` with an allowlist: expand, remove every property, type and datatype
 //! the `context` does not define (a prefix is not a term), drop nodes left empty, compact.
 //! It refuses a context with `@vocab`, and its `face=report` lists what was removed. The
@@ -111,8 +115,19 @@ fn flatten_doc(content: &[u8], base: Option<&str>) -> Result<Representation> {
     let doc = parse_doc(content, base)?;
     let loader = NoLoader;
     let mut generator = json_ld::rdf_types::generator::Blank::new();
+    // `ordered` is what makes this a function of its input (ledger #1564). json-ld collects
+    // the flattened nodes in a `HashMap` keyed by node id, and with `ordered` off it emits them
+    // in that map's iteration order, which `std`'s per-map random seed changes from one
+    // computation to the next (24 orders in 24 runs over a document of ten blank nodes). On,
+    // it sorts every graph's nodes by id, the spec's `ordered` flattening. It touches nothing
+    // else: flattening always expands unordered, and the labels `_:0`, `_:1`, … are minted in
+    // the expanded document's own (insertion) order, so they were stable already.
+    let options = json_ld::Options {
+        ordered: true,
+        ..Default::default()
+    };
     let flattened = doc
-        .flatten(&mut generator, &loader)
+        .flatten_using(&mut generator, &loader, options)
         .now_or_never()
         .ok_or_else(|| Error::Endpoint("JSON-LD flatten did not complete synchronously".into()))?
         .map_err(|e| Error::Endpoint(format!("JSON-LD flatten failed: {e}")))?;
