@@ -30,10 +30,14 @@ document after the algorithm, not a graph this module authors — so the output 
 exactly as named, typed and skolemized as the input: an anonymous input node is
 anonymous in the output (or freshly labeled `_:0`, `_:1`, … by `flatten`).
 
+Every answer is cacheable, so every answer is a function of its input alone: the
+same document gives the same bytes on every computation, blank-node labels and
+node order included (`tests/determinism.rs`).
+
 | IRI | args | behavior |
 |-----|------|----------|
 | `urn:jsonld:expand` | `base=` optional base IRI | the expanded form: every term a full IRI, no context |
-| `urn:jsonld:flatten` | `base=` | the flattened form: every node at the top level |
+| `urn:jsonld:flatten` | `base=` | the flattened form: every node at the top level, sorted by `@id` (the spec's `ordered` flattening) |
 | `urn:jsonld:compact` | `context=` (required); `base=` | the compacted form against `context` |
 | `urn:jsonld:prune` | `context=` (required, no `@vocab`); `base=`; `face=document\|report` | the compacted form with everything `context` does not define removed; `face=report` lists what was removed |
 
