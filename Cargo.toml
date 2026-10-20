@@ -70,4 +70,8 @@ module = [
 
 [dev-dependencies]
 futures = "0.3"
-ikigai-conformance = "0.8.0"
+# 0.9 added core 0.1.105's contract-shape checks (REQUIRED probes input groups, OUTPUTS honors
+# output_from, PIPELINE's named-only line, VALIDATE refuses a default on a binding) and
+# RECOMPUTE; 0.10 adds FAILURES, off unless a suite opts in. Read as a range, `^0.10.0` is
+# >=0.10.0, <0.11.0: a ceiling, so a newer conformance needs a deliberate re-pin.
+ikigai-conformance = "0.10.0"
