@@ -172,8 +172,8 @@ fn issue(kernel: &Kernel, request: Request, capability: &Capability) -> Result<S
 }
 
 /// The walk saw the module's four endpoints plus `extra` fixture endpoints, one
-/// Source action each, and skipped nothing but FAILURES (off unless a suite opts in with
-/// `Suite::check_failures()`; that is a later wave). A fifth module endpoint bound
+/// Source action each, and skipped no checks, including DATATYPES and FAILURES.
+/// A fifth module endpoint bound
 /// without a line here would be held to a weaker standard; a declared id that
 /// binds nothing is a stale list.
 fn assert_shape(report: &Report, extra: usize) {
@@ -183,10 +183,9 @@ fn assert_shape(report: &Report, extra: usize) {
         ENDPOINTS.len() + extra,
         "one Source action each: {report}"
     );
-    assert_eq!(
-        report.checks.skipped().collect::<Vec<_>>(),
-        [Check::Failures],
-        "every check but the opt-in FAILURES runs: {report}"
+    assert!(
+        report.checks.skipped().next().is_none(),
+        "every check runs, including DATATYPES and FAILURES: {report}"
     );
 }
 

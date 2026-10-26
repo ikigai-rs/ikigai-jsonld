@@ -1,6 +1,6 @@
 [package]
 name = "ikigai-jsonld"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Brian Sletten <brian.sletten@gmail.com>"]
@@ -15,8 +15,9 @@ readme = "README.md"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# 0.1.89 is the floor: `space_iri`, and `bind` dropping a name (so `space()` names itself last).
-ikigai-core = "0.1.89"
+# 0.2.0 is the streams release (ledger #2261); the old 0.1 pin meant <0.2.0
+# under 0.x compatibility rules.
+ikigai-core = "0.2.0"
 json-ld = { version = "0.21", default-features = false }
 contextual = "0.1.6"
 futures = "0.3"
@@ -27,11 +28,8 @@ async-trait = "0.1"
 # `urn:jsonld:*` against it, keeping the heavy json-ld tree out of the host's wasm. Optional
 # + behind the feature, so a native/linked consumer never pulls wasm-bindgen et al.
 [dependencies.ikigai-module]
-# 0.3.1 is the floor that builds against ikigai-core >= 0.1.78 (`Resolved` gained a
-# private field, so it can only be built through `Resolved::new`): 0.1.10, 0.2.0 and
-# 0.3.0 all build it by struct literal, and a fresh resolve (newest core under the
-# caret above) fails to compile them. ⚠ A `^0.3.1` pin is also a CEILING (<0.4.0).
-version = "0.3.1"
+# 0.5.0 is the latest release and depends on ikigai-core 0.2.0.
+version = "0.5.0"
 optional = true
 [dependencies.wasm-bindgen]
 # EXACT on purpose (ledger #1193, #1342), unlike every other pin here. The `module` feature
@@ -70,8 +68,5 @@ module = [
 
 [dev-dependencies]
 futures = "0.3"
-# 0.9 added core 0.1.105's contract-shape checks (REQUIRED probes input groups, OUTPUTS honors
-# output_from, PIPELINE's named-only line, VALIDATE refuses a default on a binding) and
-# RECOMPUTE; 0.10 adds FAILURES, off unless a suite opts in. Read as a range, `^0.10.0` is
-# >=0.10.0, <0.11.0: a ceiling, so a newer conformance needs a deliberate re-pin.
-ikigai-conformance = "0.10.0"
+# 0.11 enables DATATYPES and FAILURES by default on core 0.2.0.
+ikigai-conformance = "0.11.0"
