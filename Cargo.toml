@@ -68,5 +68,5 @@ module = [
 
 [dev-dependencies]
 futures = "0.3"
-# 0.11 enables DATATYPES and FAILURES by default on core 0.2.0.
-ikigai-conformance = "0.11.0"
+# 0.12 enables BODIES and BODY-INPUTS by default.
+ikigai-conformance = "0.12.0"
