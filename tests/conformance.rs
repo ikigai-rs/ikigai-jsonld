@@ -48,11 +48,14 @@
 //!
 //! No opt-outs, no module namespace (the faces carry the caller's terms, and the
 //! fixture's are `foaf:`), and NAMES runs: every id is kebab-case.
+//! BODIES uses the kernel's shared space in every walk. BODY-INPUTS is enabled,
+//! but no argument declares `reads_body`: these endpoints read inline arguments,
+//! so no body-input content store is needed.
 
 use ikigai_conformance::{Check, Fixture, Report, Suite};
 use ikigai_core::{
-    ArgRef, Capability, Description, Error, Exact, FnEndpoint, Invocation, Iri, Kernel, ReprType,
-    Representation, Request, Verb,
+    ArgRef, Capability, Description, EndpointSpace, Error, Exact, FnEndpoint, Invocation, Iri,
+    Kernel, ReprType, Representation, Request, Verb,
 };
 use std::sync::{Arc, RwLock};
 
@@ -140,15 +143,19 @@ fn context_resource(
     )
 }
 
+type ContextWalk = (Kernel, Arc<EndpointSpace>, Arc<RwLock<&'static str>>);
+
 /// The module's space plus one context bound at [`CONTEXT_IRI`], and a handle to
-/// change it in place. `threaded` selects the store's kind (see the file docs).
-fn with_context(threaded: bool) -> (Kernel, Arc<RwLock<&'static str>>) {
+/// change it in place. The shared space also supplies direct body probes.
+/// `threaded` selects the store's kind (see the file docs).
+fn with_context(threaded: bool) -> ContextWalk {
     let context = Arc::new(RwLock::new(CONTEXT_NAME));
     let space = ikigai_jsonld::space().bind(
         Exact::new(CONTEXT_IRI),
         context_resource(Arc::clone(&context), threaded.then_some(CONTEXT_THREAD)),
     );
-    (Kernel::new(Arc::new(space)), context)
+    let space = Arc::new(space);
+    (Kernel::new(space.clone()), space, context)
 }
 
 fn request(iri: &str, args: &[(&str, &str)]) -> Request {
@@ -191,10 +198,11 @@ fn assert_shape(report: &Report, extra: usize) {
 
 #[test]
 fn conforms() {
-    let kernel = Kernel::new(Arc::new(ikigai_jsonld::space()));
+    let space = Arc::new(ikigai_jsonld::space());
+    let kernel = Kernel::new(space.clone());
     let suite = ENDPOINTS
         .iter()
-        .fold(suite(DOC, CONTEXT_NAME), |suite, id| {
+        .fold(suite(DOC, CONTEXT_NAME).body_space(space), |suite, id| {
             suite.pure(*id).cacheable(*id)
         })
         .self_named_space("jsonld", ikigai_jsonld::space);
@@ -203,6 +211,7 @@ fn conforms() {
     eprintln!("{report}");
     assert!(report.is_clean(), "{report}");
     assert_shape(&report, 0);
+    assert!(report.unprobed.is_empty(), "{report}");
     assert_eq!(
         ikigai_core::space_iri("jsonld").as_str(),
         ikigai_jsonld::SPACE_ID
@@ -217,14 +226,15 @@ fn conforms() {
 /// test pins the current behavior rather than hiding it behind a named fixture.
 #[test]
 fn over_an_anonymous_document_every_face_has_blank_nodes() {
-    let kernel = Kernel::new(Arc::new(ikigai_jsonld::space()));
-    let suite = ENDPOINTS
-        .iter()
-        .fold(suite(ANONYMOUS, CONTEXT_NAME), |suite, id| {
-            suite.pure(*id).cacheable(*id)
-        });
+    let space = Arc::new(ikigai_jsonld::space());
+    let kernel = Kernel::new(space.clone());
+    let suite = ENDPOINTS.iter().fold(
+        suite(ANONYMOUS, CONTEXT_NAME).body_space(space),
+        |suite, id| suite.pure(*id).cacheable(*id),
+    );
     let report = suite.run_blocking(&kernel);
     eprintln!("[anonymous document]\n{report}");
+    assert!(report.unprobed.is_empty(), "{report}");
     let mut blank: Vec<&str> = report
         .of(Check::SkolemRdf)
         .map(|f| f.endpoint.as_str())
@@ -243,6 +253,25 @@ fn over_an_anonymous_document_every_face_has_blank_nodes() {
     );
 }
 
+/// Only the live context and its two consumers may remain unprobed. Pin both the
+/// endpoints and the reason so missing body-space wiring cannot pass silently.
+fn assert_live_unprobed(report: &Report) {
+    let mut endpoints = Vec::new();
+    for probe in report.unprobed.iter() {
+        assert_eq!(probe.check, Check::Bodies, "{report}");
+        assert_eq!(probe.verb, Verb::Source, "{report}");
+        assert!(
+            probe
+                .reason
+                .starts_with("uncacheable, time-varying, or volatile answer:"),
+            "{report}"
+        );
+        endpoints.push(probe.endpoint.as_str());
+    }
+    endpoints.sort_unstable();
+    assert_eq!(endpoints, ["context", COMPACT, PRUNE], "{report}");
+}
+
 /// A context by IRI, served under a thread: the compaction is cached, carries the
 /// context's thread, and survives a change to the context until that thread is
 /// cut — the kernel's job, not this module's (it has no watcher and holds no
@@ -250,9 +279,10 @@ fn over_an_anonymous_document_every_face_has_blank_nodes() {
 /// `cacheable` but NOT `pure`: its thread set is the context's, non-empty.
 #[test]
 fn a_context_by_reference_inherits_its_thread() {
-    let (kernel, context) = with_context(true);
+    let (kernel, space, context) = with_context(true);
 
     let report = suite(DOC, CONTEXT_IRI)
+        .body_space(space.clone())
         .pure(EXPAND)
         .cacheable(EXPAND)
         .pure(FLATTEN)
@@ -263,6 +293,7 @@ fn a_context_by_reference_inherits_its_thread() {
     eprintln!("[threaded context]\n{report}");
     assert!(report.is_clean(), "{report}");
     assert_shape(&report, 1);
+    assert!(report.unprobed.is_empty(), "{report}");
 
     let first = issue(&kernel, compact_request(CONTEXT_IRI), &Capability::root()).unwrap();
     assert!(first.contains("\"name\""), "{first}");
@@ -308,15 +339,17 @@ fn a_context_by_reference_inherits_its_thread() {
 /// the types are identical either way.
 #[test]
 fn over_a_live_context_nothing_is_cached() {
-    let (kernel, _) = with_context(false);
+    let (kernel, space, _) = with_context(false);
 
     let report = suite(DOC, CONTEXT_IRI)
+        .body_space(space.clone())
         .pure(EXPAND)
         .cacheable(EXPAND)
         .pure(FLATTEN)
         .cacheable(FLATTEN)
         .run_blocking(&kernel);
     eprintln!("[live context, undeclared]\n{report}");
+    assert_live_unprobed(&report);
     assert!(report.is_clean(), "{report}");
     assert_shape(&report, 1);
     issue(&kernel, compact_request(CONTEXT_IRI), &Capability::root()).unwrap();
@@ -326,6 +359,7 @@ fn over_a_live_context_nothing_is_cached() {
     );
 
     let report = suite(DOC, CONTEXT_IRI)
+        .body_space(space.clone())
         .pure(EXPAND)
         .cacheable(EXPAND)
         .pure(FLATTEN)
@@ -334,6 +368,7 @@ fn over_a_live_context_nothing_is_cached() {
         .cacheable(PRUNE)
         .run_blocking(&kernel);
     eprintln!("[live context, compact and prune declared cacheable]\n{report}");
+    assert_live_unprobed(&report);
     let mut downgraded: Vec<&str> = report
         .of(Check::Cacheable)
         .map(|f| f.endpoint.as_str())
