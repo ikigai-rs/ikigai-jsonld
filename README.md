@@ -129,3 +129,9 @@ prune's rules over the collaboration layer's allowlist context.
 0.3.0: move to ikigai-core 0.2.0, the streams release (ledger #2261), and ikigai-module 0.5.0. This is a breaking dependency update because core types appear in the public API. Conformance 0.11.0 runs DATATYPES and FAILURES by default, with no opt-outs.
 
 0.2.2: `urn:jsonld:prune`, the trust-boundary egress filter: keep only what a context defines, refuse `@vocab`, report what was removed. 0.2.1 bounded caller JSON-LD in nesting (64) and processed it on a sized thread. Depends only on published crates. Dual-licensed MIT / Apache-2.0.
+
+## Accessibility
+
+What this crate emits that people read (JSON documents and error messages), the rules that
+output follows, how it is tested and how to report a barrier are in
+[ACCESSIBILITY.md](ACCESSIBILITY.md).
