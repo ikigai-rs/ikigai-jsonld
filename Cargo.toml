@@ -1,6 +1,6 @@
 [package]
 name = "ikigai-jsonld"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Brian Sletten <brian.sletten@gmail.com>"]
@@ -15,9 +15,8 @@ readme = "README.md"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# 0.2.0 is the streams release (ledger #2261); the old 0.1 pin meant <0.2.0
-# under 0.x compatibility rules.
-ikigai-core = "0.2.0"
+# 0.3.0 scopes the content store to the delivering principal (ledger #2965).
+ikigai-core = "0.3.0"
 json-ld = { version = "0.21", default-features = false }
 contextual = "0.1.6"
 futures = "0.3"
@@ -28,8 +27,8 @@ async-trait = "0.1"
 # `urn:jsonld:*` against it, keeping the heavy json-ld tree out of the host's wasm. Optional
 # + behind the feature, so a native/linked consumer never pulls wasm-bindgen et al.
 [dependencies.ikigai-module]
-# 0.5.0 is the latest release and depends on ikigai-core 0.2.0.
-version = "0.5.0"
+# 0.6.0 uses ikigai-core 0.3.0 and its scoped content store.
+version = "0.6.0"
 optional = true
 [dependencies.wasm-bindgen]
 # EXACT on purpose (ledger #1193, #1342), unlike every other pin here. The `module` feature
@@ -68,5 +67,5 @@ module = [
 
 [dev-dependencies]
 futures = "0.3"
-# 0.12 enables BODIES and BODY-INPUTS by default.
-ikigai-conformance = "0.12.0"
+# 0.14.0 uses ikigai-core 0.3.0, keeping tests on the same core as the library.
+ikigai-conformance = "0.14.0"
