@@ -81,7 +81,9 @@ compacts with the same context, so the output speaks only the context's terms:
   `"brief": "collab:brief"`; it does not let the document say `collab:anything`;
 - **removed**: every property, reverse property and `@type` value outside the
   allowlist, every value whose datatype is outside it (the value, not just its
-  datatype), and every node left empty by that, wherever it sits. A node that
+  datatype), and every node left empty by that, wherever it sits. Originally
+  empty allowed properties, graphs and included arrays stay empty; only containers
+  emptied by filtering are removed. A node that
   was only ever a reference (`{"@id": …}`) is a value, and stays;
 - **refused** (`InvalidArgument` on `context`): a context with `@vocab` anywhere,
   which would make every unmapped key look defined, and a scoped `@context` in a
@@ -92,8 +94,9 @@ compacts with the same context, so the output speaks only the context's terms:
   `emptyNodes`. A caller that must never lose content silently refuses to
   publish when `dropped` is not 0.
 
-An allowed document is a fixed point: prune changes nothing compaction would
-not, and pruning its own output returns it byte for byte. ⚠ A context decides
+An allowed document changes nothing compaction would not. Documents that retain
+node content after compaction are fixed points: pruning the output returns it
+byte for byte. ⚠ A context decides
 which PROPERTIES cross, never what a crossing value says, and an `@id` is a
 value: redacting values is a CONSTRUCT's job, upstream.
 
@@ -135,6 +138,49 @@ context-by-reference kernel twice (threaded and live) and pins by hand what the
 suite cannot see — the blank-node mirror above, the remote-context gate, and
 that each action serves exactly the faces it declares. `tests/prune.rs` pins
 prune's rules over the collaboration layer's allowlist context.
+
+### Correctness audit (ledger #3481)
+
+`cargo test --test w3c_subset` runs a finite, offline subset of the
+[W3C JSON-LD API tests](https://github.com/w3c/json-ld-api/tree/55514738d854e56bb8bad4c53cda2f0e23be4a50/tests),
+vendored at that revision in `tests/fixtures/w3c` with the upstream license.
+`manifest.json` records the original test IDs, names, input/expected/context paths,
+and effective base. Each case runs through our public endpoint and an independent
+`json-ld` call, and compares both with the W3C expected result. Object key order
+and arbitrary blank-node labels are ignored; expansion/flattening array order is
+ignored except for `@list` and value payloads. Compaction arrays retain their order.
+
+| Endpoint | Passed | Failed |
+|---|---:|---:|
+| expand | 14 | 0 |
+| compact | 12 | 0 |
+| flatten | 9 | 0 |
+
+The subset covers null/unmapped values, empty sets/lists, keyword aliases,
+datatype and IRI coercion, graphs, included nodes, nesting, scoped contexts,
+and expansion base overrides. No upstream failures were found in this subset.
+This is not full JSON-LD 1.1 conformance evidence. The wrapper exposes `base`,
+uses the library's default JSON-LD 1.1 processing mode, and forces ordered
+flattening; `expandContext`, `processingMode` and caller-selected `ordered`
+are not endpoint arguments.
+
+`tests/audit_boundaries.rs` additionally checks keyword aliases, a prefix
+redefined after a term was defined, input property/type scopes, refused target
+scopes, nested graphs and included nodes, protected contexts, and base-aware
+compaction/expansion round trips. Absolute and relative embedded remote contexts
+and imports are refused by `NoLoader`; the relative cases check the resolved
+IRI in the error. There is no built-in static set of remote contexts. Only the
+explicit target `context` resource is resolved through the kernel, as described
+above. Existing semantic and determinism tests cover loader call counts, typed
+values, JSON literals, and repeated computations on fresh kernels.
+
+The reproduced wrapper defect was over-pruning: an allowed empty property or
+empty graph/included container was removed and its node incorrectly counted as
+empty. `tests/prune.rs` checks preservation, unchanged compaction results, and
+zero drops, as well as continued removal of disallowed empty properties and
+containers emptied by filtering. An originally empty reverse map also reports
+zero drops and matches plain compaction; plain compaction can turn it into a
+free-floating `@id` reference that disappears on a subsequent expansion.
 
 ## Status
 
