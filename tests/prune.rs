@@ -429,3 +429,59 @@ fn both_faces_are_cacheable() {
         assert!(kernel.is_cached(&req(), &Capability::root()), "{face}");
     }
 }
+
+#[test]
+fn allowed_empty_properties_are_not_pruned() {
+    let context = r#"{"p":"urn:ex:p","r":{"@reverse":"urn:ex:r"}}"#;
+    for doc in [
+        r#"{"@id":"urn:ex:s","urn:ex:p":[]}"#,
+        r#"{"@id":"urn:ex:s","@type":[]}"#,
+        r#"{"@id":"urn:ex:s","@graph":[]}"#,
+        r#"{"@id":"urn:ex:s","@included":[]}"#,
+    ] {
+        let output = prune(doc, context);
+        assert_eq!(output, compact(doc, context), "{doc}");
+        assert_eq!(prune(&output, context), output, "fixed point: {doc}");
+        assert!(report(doc, context).contains("\"dropped\": 0"), "{doc}");
+    }
+}
+
+#[test]
+fn an_originally_empty_reverse_map_is_not_counted_as_a_drop() {
+    // Expansion removes the empty reverse property's array, leaving @reverse: {}.
+    // Compaction emits an @id-only node, which is itself free-floating on re-expansion.
+    let context = r#"{"r":{"@reverse":"urn:ex:r"}}"#;
+    let doc = r#"{"@id":"urn:ex:s","@reverse":{"urn:ex:r":[]}}"#;
+    assert_eq!(prune(doc, context), compact(doc, context));
+    assert!(report(doc, context).contains("\"dropped\": 0"));
+}
+
+#[test]
+fn empty_allowed_containers_survive_beside_removed_content() {
+    let context = r#"{"p":"urn:ex:p"}"#;
+    let doc = r#"{"@id":"urn:ex:s","urn:ex:p":[],"urn:blocked:p":"removed"}"#;
+    let expected = r#"{"@id":"urn:ex:s","urn:ex:p":[]}"#;
+    assert_eq!(prune(doc, context), compact(expected, context));
+    let report = report(doc, context);
+    assert!(report.contains("\"dropped\": 1"), "{report}");
+    assert!(report.contains("\"emptyNodes\": 0"), "{report}");
+}
+
+#[test]
+fn containers_emptied_by_filtering_are_still_removed() {
+    let context = r#"{"p":"urn:ex:p","r":{"@reverse":"urn:ex:r"}}"#;
+    for doc in [
+        r#"{"@id":"urn:ex:s","urn:ex:p":[{"urn:blocked:p":"removed"}]}"#,
+        r#"{"@id":"urn:ex:s","@graph":[{"urn:blocked:p":"removed"}]}"#,
+        r#"{"@id":"urn:ex:s","@included":[{"urn:blocked:p":"removed"}]}"#,
+        r#"{"@id":"urn:ex:s","@reverse":{"urn:ex:r":[{"urn:blocked:p":"removed"}]}}"#,
+    ] {
+        assert_eq!(prune(doc, context), "{}", "{doc}");
+        let report = report(doc, context);
+        assert!(report.contains("\"emptyNodes\": 2"), "{doc}: {report}");
+    }
+    // Empty arrays on properties outside the allowlist are removed too.
+    let doc = r#"{"@id":"urn:ex:s","urn:blocked:p":[]}"#;
+    assert_eq!(prune(doc, context), "{}");
+    assert!(report(doc, context).contains("urn:blocked:p"));
+}

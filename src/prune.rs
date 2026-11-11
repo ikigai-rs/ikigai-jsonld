@@ -25,7 +25,8 @@
 //!    not just its datatype, which would silently change what the value means); a node object
 //!    that HAD content (types, properties, reverse properties, a graph, included nodes) and has
 //!    none left is removed, wherever it sits. A node that was only ever a reference
-//!    (`{"@id": …}`) is a value and stays.
+//!    (`{"@id": …}`) is a value and stays. Originally empty allowed containers stay;
+//!    only containers emptied by filtering are removed.
 //! 4. **Compact** the remainder with the same context, so the output speaks only the context's
 //!    terms.
 //!
@@ -237,6 +238,7 @@ fn prune_node(node: JsonObject, allow: &Allowlist, dropped: &mut Dropped) -> Opt
                 let Json::Object(reverse) = entry.value else {
                     continue;
                 };
+                let was_empty = reverse.is_empty();
                 let mut kept_reverse = JsonObject::new();
                 for property in reverse {
                     if !allow.reverse.contains(property.key.as_str()) {
@@ -244,25 +246,22 @@ fn prune_node(node: JsonObject, allow: &Allowlist, dropped: &mut Dropped) -> Opt
                         dropped.reverse.insert(property.key.as_str().to_string());
                         continue;
                     }
-                    let values = prune_values(property.value, allow, dropped);
-                    if !values.is_empty() {
-                        kept_reverse.push(property.key, Json::Array(values));
+                    if let Some(values) = prune_container(property.value, allow, dropped) {
+                        kept_reverse.push(property.key, values);
                     }
                 }
-                if !kept_reverse.is_empty() {
+                if was_empty || !kept_reverse.is_empty() {
                     kept.push(entry.key, Json::Object(kept_reverse));
                 }
             }
             "@graph" | "@included" => {
-                let nodes = prune_values(entry.value, allow, dropped);
-                if !nodes.is_empty() {
-                    kept.push(entry.key, Json::Array(nodes));
+                if let Some(nodes) = prune_container(entry.value, allow, dropped) {
+                    kept.push(entry.key, nodes);
                 }
             }
             property if !property.starts_with('@') && allow.terms.contains(property) => {
-                let values = prune_values(entry.value, allow, dropped);
-                if !values.is_empty() {
-                    kept.push(entry.key, Json::Array(values));
+                if let Some(values) = prune_container(entry.value, allow, dropped) {
+                    kept.push(entry.key, values);
                 }
             }
             // Outside the allowlist, and any keyword an expanded node object should not carry:
@@ -280,6 +279,14 @@ fn prune_node(node: JsonObject, allow: &Allowlist, dropped: &mut Dropped) -> Opt
         return None;
     }
     Some(kept)
+}
+
+/// Preserve an originally empty, allowed container. Only remove a container when filtering
+/// emptied it; an empty input is allowed data, not evidence of a removed value.
+fn prune_container(values: Json, allow: &Allowlist, dropped: &mut Dropped) -> Option<Json> {
+    let was_empty = values.as_array().is_some_and(|values| values.is_empty());
+    let kept = prune_values(values, allow, dropped);
+    (was_empty || !kept.is_empty()).then_some(Json::Array(kept))
 }
 
 /// Prune an expanded array of values: value objects, list objects and node objects.
