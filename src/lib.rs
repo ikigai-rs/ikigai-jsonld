@@ -35,13 +35,18 @@
 //! `depth`'s notes, ledger #1042). A document nested deeper is refused as a typed
 //! `InvalidArgument` naming the argument that carried it.
 //!
+//! Flat contexts can recurse through term definitions too; `context_depth` bounds potential
+//! dependency chains, including scoped definitions, before context processing.
+//!
 //! Heavy dependency (the `json-ld` tree), so this is a standalone crate meant to be
 //! lazy-loaded as a WASM module — the ikigai-xslt playbook — keeping it out of the host's
 //! core wasm bundle.
 
 #![forbid(unsafe_code)]
 
+mod context_depth;
 mod depth;
+pub use context_depth::MAX_CONTEXT_DEPENDENCY_DEPTH;
 mod prune;
 pub use depth::{check_json_nesting, JSON_LD_STACK, MAX_JSON_NESTING};
 
@@ -61,6 +66,7 @@ fn parse_doc(content: &[u8], base: Option<&str>) -> Result<RemoteDocument<IriBuf
         .map_err(|e| Error::Endpoint(format!("JSON-LD input is not UTF-8: {e}")))?;
     let (value, _) = json_ld::syntax::Value::parse_str(text)
         .map_err(|e| Error::Endpoint(format!("JSON-LD parse error: {e}")))?;
+    context_depth::check(&value, "content", false)?;
     let base_iri = match base {
         Some(b) => Some(
             IriBuf::new(b.to_string())
@@ -171,6 +177,7 @@ fn parse_context(
         Some(inner) => inner.clone(),
         None => ctx_value,
     };
+    context_depth::check(&context_value, "context", true)?;
     let context = json_ld::syntax::Context::try_from_json(context_value.clone())
         .map_err(|e| Error::Endpoint(format!("invalid JSON-LD context: {e}")))?;
     Ok((context_value, context))

@@ -111,6 +111,18 @@ documents; the wasm module has no threads and holds the bound on its default
 stack. Real JSON-LD nests about 10 deep at most. The measurements behind both
 numbers live in `src/depth.rs` and `tests/jsonld_depth_measure.rs`.
 
+JSON nesting alone does not bound context processing: even a flat context can
+chain term definitions. Before processing a context, the module also refuses a
+potential term-definition dependency depth past **64**
+(`MAX_CONTEXT_DEPENDENCY_DEPTH`), naming `content` or `context` and asking for
+direct IRI mappings. References through `@id`, `@type`, `@reverse`, prefixes,
+and scoped contexts share this budget. The check is structural and conservative:
+it counts dependencies even when definition order would avoid recursion, and
+counts a cyclic group by its number of definitions. Independent terms do not
+consume one another's budget. The graph check uses iterative traversal and
+linear space and time; the child-process regressions are in
+`tests/context_depth.rs`.
+
 ## Conformance
 
 The module **passes
