@@ -11,7 +11,7 @@ HTML, SVG or terminal output of its own. It is not a conformance claim. Adapted 
 | Status | Evaluation in progress. No conformance claim. |
 | Owner | the maintainers of this repository |
 | Report a barrier | [a GitHub issue](https://github.com/ikigai-rs/ikigai-jsonld/issues/new?labels=accessibility) with the `accessibility` label; anything security-sensitive through [private vulnerability reporting](https://github.com/ikigai-rs/ikigai-jsonld/security/advisories/new) |
-| Last reviewed | 2026-10-31 |
+| Last reviewed | 2026-11-11 |
 
 ## What it emits that people read
 
@@ -35,6 +35,9 @@ Followed by reading the source:
   lists the two that work, a context with `@vocab` says an egress context must name each term
   it allows, and a document nested too deep says the bound (64, `MAX_JSON_NESTING`) and asks for
   it to be flattened.
+- A context dependency chain past 64 (`MAX_CONTEXT_DEPENDENCY_DEPTH`) is an
+  `InvalidArgument` naming `content` or `context` and asking for direct IRI mappings
+  to shorten the dependencies.
 - Nothing is written in color; every answer is plain text.
 
 ## How it is tested
@@ -46,6 +49,9 @@ Followed by reading the source:
   `a_deep_context_is_refused_naming_context_inline_and_by_reference`) checks that a document
   nested too deep is refused naming the argument, with the words `deeper than 64
   (MAX_JSON_NESTING)`.
+- `tests/context_depth.rs`: `long_flat_chains_are_refused_at_every_door_without_aborting`
+  checks that the dependency-depth refusal names the argument and the 64-definition bound,
+  including inline and referenced target contexts.
 - **No automated accessibility checker, browser or assistive technology has been used on this
   output.**
 
@@ -77,3 +83,4 @@ technology, if you are comfortable sharing them. Anything security-sensitive goe
 | Date | Change |
 |---|---|
 | 2026-10-31 | First version. |
+| 2026-11-11 | Added the context dependency-depth refusal and its child-process checks. |
