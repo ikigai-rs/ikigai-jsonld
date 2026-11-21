@@ -184,6 +184,8 @@ free-floating `@id` reference that disappears on a subsequent expansion.
 
 ## Status
 
+0.5.0: move to ikigai-core 0.4.0 (scope opacity, structured denials; the core 0.4.0 cascade), ikigai-module 0.7.0, and ikigai-conformance 0.15.0. This is a breaking dependency update because core types appear in the public API. No behavior change.
+
 0.4.0: move to ikigai-core 0.3.0, the scoped content store release (ledger #2965), ikigai-module 0.6.0, and ikigai-conformance 0.14.0. This is a breaking dependency update because core types appear in the public API.
 
 0.3.0: move to ikigai-core 0.2.0, the streams release (ledger #2261), and ikigai-module 0.5.0. This is a breaking dependency update because core types appear in the public API. Conformance 0.11.0 runs DATATYPES and FAILURES by default, with no opt-outs.
