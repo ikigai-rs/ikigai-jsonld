@@ -321,10 +321,8 @@ fn prune_value(value: Json, allow: &Allowlist, dropped: &mut Dropped) -> Option<
         let mut kept = JsonObject::new();
         for entry in object {
             if entry.key.as_str() == "@list" {
-                kept.push(
-                    entry.key,
-                    Json::Array(prune_values(entry.value, allow, dropped)),
-                );
+                let values = prune_container(entry.value, allow, dropped)?;
+                kept.push(entry.key, values);
             } else {
                 kept.push(entry.key, entry.value);
             }
