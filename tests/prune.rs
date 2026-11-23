@@ -485,3 +485,17 @@ fn containers_emptied_by_filtering_are_still_removed() {
     assert_eq!(prune(doc, context), "{}");
     assert!(report(doc, context).contains("urn:blocked:p"));
 }
+
+#[test]
+fn list_emptied_by_filtering_is_removed_but_original_empty_list_is_kept() {
+    let context = r#"{"p":"urn:ex:p"}"#;
+    let emptied = r#"{"@id":"urn:ex:s","urn:ex:p":{"@list":[{"urn:blocked:p":"removed"}]}}"#;
+    assert_eq!(prune(emptied, context), "{}");
+    let changes = report(emptied, context);
+    assert!(changes.contains("\"emptyNodes\": 2"), "{changes}");
+    let partial = r#"{"@id":"urn:ex:s","urn:ex:p":{"@list":[{"urn:blocked:p":"removed"},"kept"]}}"#;
+    let expected = r#"{"@id":"urn:ex:s","urn:ex:p":{"@list":["kept"]}}"#;
+    assert_eq!(prune(partial, context), compact(expected, context));
+    let original = r#"{"@id":"urn:ex:s","urn:ex:p":{"@list":[]}}"#;
+    assert_eq!(prune(original, context), compact(original, context));
+}
