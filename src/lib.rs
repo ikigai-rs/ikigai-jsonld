@@ -60,6 +60,25 @@ use ikigai_core::{
 use json_ld::syntax::{Parse, Print, TryFromJson};
 use json_ld::{IriBuf, JsonLdProcessor, NoLoader, RemoteContextReference, RemoteDocument};
 
+/// Read optional text, using caller-facing guidance for arguments that are not inline.
+fn optional_text<'a>(inv: &'a Invocation<'_>, name: &str) -> Result<Option<&'a str>> {
+    inv.optional_str(name).map_err(|error| match error {
+        Error::InvalidArgument { name, detail } => {
+            let detail = match inv.request.args.get(&name) {
+                Some(ArgRef::Content(_)) => {
+                    "A body was supplied. Pass the value as inline text.".into()
+                }
+                Some(ArgRef::Reference(_)) => {
+                    "A reference was supplied. Pass the value as inline text.".into()
+                }
+                _ => format!("The value is {detail}. Pass it as UTF-8 text."),
+            };
+            Error::InvalidArgument { name, detail }
+        }
+        other => other,
+    })
+}
+
 /// Parse `content` (JSON-LD bytes) into a `RemoteDocument`, with an optional base IRI.
 fn parse_doc(content: &[u8], base: Option<&str>) -> Result<RemoteDocument<IriBuf>> {
     let text = std::str::from_utf8(content)
@@ -70,7 +89,10 @@ fn parse_doc(content: &[u8], base: Option<&str>) -> Result<RemoteDocument<IriBuf
     let base_iri = match base {
         Some(b) => Some(
             IriBuf::new(b.to_string())
-                .map_err(|e| Error::Endpoint(format!("bad base IRI `{b}`: {e}")))?,
+                .map_err(|_| Error::InvalidArgument {
+                    name: "base".into(),
+                    detail: "The value is not an absolute IRI. Use an absolute IRI such as https://example.org/.".into(),
+                })?,
         ),
         None => None,
     };
@@ -91,7 +113,7 @@ fn expand(inv: &Invocation<'_>) -> Result<Representation> {
     // not inline, so a caller can tell its own omission from a failure here.
     let content = inv.inline_arg("content")?;
     check_json_nesting(content, "content")?;
-    let base = inv.inline_str("base").ok();
+    let base = optional_text(inv, "base")?;
     depth::on_json_ld_stack(|| expand_doc(content, base))
 }
 
@@ -113,7 +135,7 @@ fn flatten(inv: &Invocation<'_>) -> Result<Representation> {
     // not inline, so a caller can tell its own omission from a failure here.
     let content = inv.inline_arg("content")?;
     check_json_nesting(content, "content")?;
-    let base = inv.inline_str("base").ok();
+    let base = optional_text(inv, "base")?;
     depth::on_json_ld_stack(|| flatten_doc(content, base))
 }
 
@@ -210,7 +232,7 @@ impl Endpoint for CompactEndpoint {
         // Typed refusals from core (`MissingArgument`/`InvalidArgument`), as in `expand`.
         let content = inv.inline_arg("content")?.to_vec();
         let context_arg = inv.inline_str("context")?;
-        let base = inv.inline_str("base").ok().map(str::to_string);
+        let base = optional_text(inv, "base")?;
         // Bound the document before anything is resolved for it.
         check_json_nesting(&content, "content")?;
 
@@ -224,7 +246,7 @@ impl Endpoint for CompactEndpoint {
         // A context nests too (scoped contexts recurse), inline or resolved; either way it
         // arrived through `context`.
         check_json_nesting(&context_bytes, "context")?;
-        depth::on_json_ld_stack(|| compact_doc(&content, &context_bytes, base.as_deref()))
+        depth::on_json_ld_stack(|| compact_doc(&content, &context_bytes, base))
     }
 
     fn name(&self) -> &str {
@@ -266,8 +288,8 @@ impl Endpoint for PruneEndpoint {
         // Typed refusals from core (`MissingArgument`/`InvalidArgument`), as in `expand`.
         let content = inv.inline_arg("content")?.to_vec();
         let context_arg = inv.inline_str("context")?;
-        let base = inv.inline_str("base").ok().map(str::to_string);
-        let face = prune::Face::parse(inv.inline_str("face").ok())?;
+        let base = optional_text(inv, "base")?;
+        let face = prune::Face::parse(optional_text(inv, "face")?)?;
         check_json_nesting(&content, "content")?;
         let context_bytes = if is_inline_context(context_arg) {
             context_arg.as_bytes().to_vec()
@@ -275,9 +297,7 @@ impl Endpoint for PruneEndpoint {
             resolve_context(inv, context_arg).await?.bytes
         };
         check_json_nesting(&context_bytes, "context")?;
-        depth::on_json_ld_stack(|| {
-            prune::prune_doc(&content, &context_bytes, base.as_deref(), face)
-        })
+        depth::on_json_ld_stack(|| prune::prune_doc(&content, &context_bytes, base, face))
     }
 
     fn name(&self) -> &str {

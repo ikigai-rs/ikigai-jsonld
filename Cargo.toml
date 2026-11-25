@@ -1,6 +1,6 @@
 [package]
 name = "ikigai-jsonld"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Brian Sletten <brian.sletten@gmail.com>"]
@@ -15,8 +15,8 @@ readme = "README.md"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# core 0.4.0 (scope opacity, structured denials; the cascade).
-ikigai-core = "0.4.0"
+# 0.4.3 introduced the optional inline argument readers.
+ikigai-core = "0.4.3"
 json-ld = { version = "0.21", default-features = false }
 contextual = "0.1.6"
 futures = "0.3"
