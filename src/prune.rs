@@ -375,8 +375,7 @@ pub(crate) fn prune_doc(
         .cacheable());
     }
 
-    let base_iri = base.and_then(|b| IriBuf::new(b.to_string()).ok());
-    let remote = RemoteDocument::new(base_iri, None, pruned);
+    let remote = RemoteDocument::new(doc.url().cloned(), None, pruned);
     let compacted = remote
         .compact(
             RemoteContextReference::Loaded(RemoteDocument::new(None, None, context)),
