@@ -44,6 +44,31 @@ node order included (`tests/determinism.rs`).
 Framing is not in the underlying crate; the "shape a graph by root" need is
 served by SPARQL `CONSTRUCT` (`ikigai-linkeddata`).
 
+### Pinned credential contexts for Rust callers
+
+Pass `&ikigai_jsonld::PinnedContextLoader` to the `json_ld::JsonLdProcessor`
+expansion or compaction methods to resolve these exact URLs entirely offline.
+
+- VC Data Model 2.0, including Data Integrity terms — `https://www.w3.org/ns/credentials/v2`
+- Open Badges 3.0.3 — `https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json`,
+  the version linked by the [1EdTech conformance and certification guide](https://standards.1edtech.org/open-badges/specifications/standards/v3p0/cert)
+- Multikey v1 — `https://w3id.org/security/multikey/v1`
+
+The loader refuses all other URLs. Callers using the processor directly remain
+responsible for bounding their input and providing adequate stack space.
+The `urn:jsonld:*` endpoints still use `NoLoader` for embedded contexts and imports.
+
+To add a pin, fetch the context from its source URL with
+`Accept: application/ld+json, application/json`, following redirects. Save the
+response body byte for byte as a `.jsonld` file under `contexts/`.
+Record the requested URL, file name, UTC fetch date, and SHA-256 of those exact
+bytes in [the manifest](contexts/manifest.json). Add the exact URL and bundled
+file to the loader, add an expansion test for the new context, and run
+`cargo test` to verify the digest and the offline processing path.
+
+A pinned context never updates silently. Builds and runtime use only checked-in
+bytes. Changing a pin requires an explicit, reviewed change.
+
 ### The context is a resource
 
 `compact`'s `context` is either inline JSON (`{…}` / `[…]`, a bare context or a
@@ -169,10 +194,10 @@ redefined after a term was defined, input property/type scopes, refused target
 scopes, nested graphs and included nodes, protected contexts, and base-aware
 compaction/expansion round trips. Absolute and relative embedded remote contexts
 and imports are refused by `NoLoader`; the relative cases check the resolved
-IRI in the error. There is no built-in static set of remote contexts. Only the
-explicit target `context` resource is resolved through the kernel, as described
-above. Existing semantic and determinism tests cover loader call counts, typed
-values, JSON literals, and repeated computations on fresh kernels.
+IRI in the error. For the endpoints, only the explicit target `context` resource
+is resolved through the kernel, as described above. Existing semantic and
+determinism tests cover loader call counts, typed values, JSON literals, and
+repeated computations on fresh kernels.
 
 The reproduced wrapper defect was over-pruning: an allowed empty property or
 empty graph/included container was removed and its node incorrectly counted as

@@ -84,6 +84,7 @@ fn embedded_remote_contexts_and_imports_never_call_the_kernel_loader() {
     let kernel = Kernel::new(Arc::new(space));
     for context in [
         r#""https://example.org/context""#,
+        r#""https://www.w3.org/ns/credentials/v2""#,
         r#"{"@import":"https://example.org/context"}"#,
     ] {
         let doc = format!(r#"{{"@context":{context},"p":"value"}}"#);
