@@ -1,0 +1,20 @@
+[
+  {
+    "file": "credentials-v2.jsonld",
+    "url": "https://www.w3.org/ns/credentials/v2",
+    "fetched": "2026-11-27",
+    "sha256": "59955ced6697d61e03f2b2556febe5308ab16842846f5b586d7f1f7adec92734"
+  },
+  {
+    "file": "open-badges-3.0.3.jsonld",
+    "url": "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json",
+    "fetched": "2026-11-27",
+    "sha256": "3d34f4d4ef1bce691106e63798beb5e7b862ba841423f5ee1e53ab7ddf3bca84"
+  },
+  {
+    "file": "multikey-v1.jsonld",
+    "url": "https://w3id.org/security/multikey/v1",
+    "fetched": "2026-11-27",
+    "sha256": "ba2c182de2d92f7e47184bcca8fcf0beaee6d3986c527bf664c195bbc7c58597"
+  }
+]

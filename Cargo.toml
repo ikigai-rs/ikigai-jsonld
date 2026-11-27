@@ -1,6 +1,6 @@
 [package]
 name = "ikigai-jsonld"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Brian Sletten <brian.sletten@gmail.com>"]
@@ -66,6 +66,8 @@ module = [
 ]
 
 [dev-dependencies]
+serde_json = "1"
+sha2 = "0.10"
 futures = "0.3"
 # 0.15.0 uses ikigai-core 0.4.0, keeping tests on the same core as the library.
 ikigai-conformance = "0.15.0"

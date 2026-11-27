@@ -8,6 +8,8 @@
 //! parameterized by a `context`. (Framing is not in the underlying crate; the layers
 //! "shape a graph by root" need is served by SPARQL `CONSTRUCT` for now.)
 //!
+//! Rust callers can opt into [`PinnedContextLoader`] to use bundled credential contexts offline.
+//!
 //! The ops are async in `json-ld`, but with `NoLoader` they do **no I/O** — they complete in
 //! a single poll — so each drives that future with `now_or_never` (poll once, take the result,
 //! never park). Wasm-safe by construction (no executor, no blocking); a clean error if a future
@@ -47,8 +49,10 @@
 mod context_depth;
 mod depth;
 pub use context_depth::MAX_CONTEXT_DEPENDENCY_DEPTH;
+mod pinned;
 mod prune;
 pub use depth::{check_json_nesting, JSON_LD_STACK, MAX_JSON_NESTING};
+pub use pinned::PinnedContextLoader;
 
 use async_trait::async_trait;
 use contextual::WithContext;

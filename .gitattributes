@@ -1,0 +1,2 @@
+# Digests cover the original response bytes, including line endings.
+contexts/*.jsonld -text
